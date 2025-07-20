@@ -1,0 +1,81 @@
+name: Project Board Automation
+
+on:
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled, assigned]
+  pull_request:
+    types: [opened, closed, reopened, review_requested, ready_for_review, converted_to_draft]
+
+jobs:
+  project_automation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v0.5.0
+        with:
+          project-url: https://github.com/orgs/ChaseWhiteRabbit/projects/core-platform-enterprise
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+
+  update_project_status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const { issue, pull_request } = context.payload;
+            const item = issue || pull_request;
+            
+            if (context.eventName === 'issues') {
+              if (context.payload.action === 'opened') {
+                // Move to Requirements
+                await setProjectStatus(item.node_id, 'Requirements');
+              } else if (context.payload.action === 'assigned') {
+                // Move to Sprint Planning
+                await setProjectStatus(item.node_id, 'Sprint Planning');
+              } else if (context.payload.action === 'closed') {
+                // Move to Done
+                await setProjectStatus(item.node_id, 'Done');
+              }
+            } else if (context.eventName === 'pull_request') {
+              if (context.payload.action === 'opened') {
+                // Move to In Progress
+                await setProjectStatus(item.node_id, 'In Progress');
+              } else if (context.payload.action === 'review_requested') {
+                // Move to Code Review
+                await setProjectStatus(item.node_id, 'Code Review');
+              } else if (context.payload.action === 'ready_for_review') {
+                // Move to Testing
+                await setProjectStatus(item.node_id, 'Testing');
+              } else if (context.payload.action === 'closed' && item.merged) {
+                // Move to Done
+                await setProjectStatus(item.node_id, 'Done');
+              }
+            }
+
+  sync_project_fields:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const { issue, pull_request } = context.payload;
+            const item = issue || pull_request;
+            
+            // Sync labels with project fields
+            const labelMap = {
+              'priority: high': 'High',
+              'priority: medium': 'Medium',
+              'priority: low': 'Low',
+              'type: feature': 'Feature',
+              'type: bug': 'Bug',
+              'type: security': 'Security',
+              'type: performance': 'Performance'
+            };
+            
+            const labels = item.labels.map(label => label.name);
+            for (const [labelName, fieldValue] of Object.entries(labelMap)) {
+              if (labels.includes(labelName)) {
+                await setProjectField(item.node_id, fieldValue);
+              }
+            }
